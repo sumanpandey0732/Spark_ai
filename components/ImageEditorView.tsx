@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { editImage } from '../services/geminiService';
-import { UploadIcon } from './icons/UploadIcon';
-import { ImageEditIcon } from './icons/ImageEditIcon';
+import { editImage } from '../services/geminiService.ts';
+import { UploadIcon } from './icons/UploadIcon.tsx';
+import { ImageEditIcon } from './icons/ImageEditIcon.tsx';
 
 const ImageEditorView: React.FC = () => {
     const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);

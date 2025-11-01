@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ClipboardIcon } from './icons/ClipboardIcon';
+import { ClipboardIcon } from './icons/ClipboardIcon.tsx';
 
 interface CodeBlockProps {
     language: string;

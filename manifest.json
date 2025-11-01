@@ -1,0 +1,16 @@
+{
+  "short_name": "Spark AI",
+  "name": "Spark AI Studio",
+  "description": "A versatile AI application that allows users to chat with different Spark models.",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1f2937",
+  "background_color": "#111827"
+}

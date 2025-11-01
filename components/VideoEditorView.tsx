@@ -1,19 +1,7 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { generateVideo } from '../services/geminiService';
-import { UploadIcon } from './icons/UploadIcon';
-import { VideoIcon } from './icons/VideoIcon';
-
-// Fix: Moved the AIStudio interface into the global declaration to prevent type conflicts
-// that arise when multiple modules augment the global Window type.
-declare global {
-    interface AIStudio {
-        hasSelectedApiKey: () => Promise<boolean>;
-        openSelectKey: () => Promise<void>;
-    }
-    interface Window {
-        aistudio?: AIStudio;
-    }
-}
+import React, { useState, useCallback, useRef } from 'react';
+import { generateVideo } from '../services/geminiService.ts';
+import { UploadIcon } from './icons/UploadIcon.tsx';
+import { VideoIcon } from './icons/VideoIcon.tsx';
 
 const VideoEditorView: React.FC = () => {
     const [imageFile, setImageFile] = useState<File | null>(null);
@@ -23,28 +11,8 @@ const VideoEditorView: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
-    const [isKeySelected, setIsKeySelected] = useState<boolean | null>(null);
-
+    
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        const checkApiKey = async () => {
-            if (window.aistudio) {
-                const hasKey = await window.aistudio.hasSelectedApiKey();
-                setIsKeySelected(hasKey);
-            } else {
-                setIsKeySelected(false);
-            }
-        };
-        checkApiKey();
-    }, []);
-
-    const handleSelectKey = async () => {
-        if (window.aistudio) {
-            await window.aistudio.openSelectKey();
-            setIsKeySelected(true);
-        }
-    };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -78,48 +46,10 @@ const VideoEditorView: React.FC = () => {
         } catch (e) {
             const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
             setError(errorMessage);
-            if (errorMessage.includes("API key not valid or found")) {
-                setIsKeySelected(false);
-            }
         } finally {
             setIsLoading(false);
         }
     }, [imageFile, prompt]);
-
-    if (isKeySelected === null) {
-        return (
-             <div className="flex flex-col h-full bg-gray-800/50 text-white justify-center items-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-400"></div>
-                <p className="mt-4">Checking API key status...</p>
-             </div>
-        );
-    }
-    
-    if (!isKeySelected) {
-        return (
-            <div className="flex flex-col h-full bg-gray-800/50 text-white">
-                <header className="py-4 pr-4 pl-16 md:p-4 border-b border-gray-700/50 backdrop-blur-sm bg-gray-900/30">
-                    <h2 className="text-lg font-semibold">Spark Video Editor</h2>
-                    <p className="text-sm text-gray-400">Generate stunning videos from text prompts and images.</p>
-                </header>
-                <div className="flex-1 flex justify-center items-center">
-                    <div className="text-center bg-gray-900/30 p-8 rounded-lg">
-                        <h3 className="text-xl font-bold mb-2">API Key Required</h3>
-                        <p className="text-gray-400 mb-4 max-w-md">
-                            To use the video generation feature, you need to select an API key. 
-                            Video generation is a billable service. For more details, see the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">billing documentation</a>.
-                        </p>
-                        <button
-                            onClick={handleSelectKey}
-                            className="px-4 py-2 bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-colors font-semibold"
-                        >
-                            Select API Key
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="flex flex-col h-full bg-gray-800/50 text-white">

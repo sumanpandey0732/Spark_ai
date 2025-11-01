@@ -1,16 +1,19 @@
 import { GoogleGenAI, Chat, Modality, Part, Content, OperationsOperation } from "@google/genai";
-import { fileToBase64 } from '../utils/fileUtils';
-import { ChatMessage, MessageAuthor } from "../types";
+import { fileToBase64 } from '../utils/fileUtils.ts';
+import { ChatMessage, MessageAuthor } from "../types.ts";
 
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const getApiKey = (): string => {
+  // This function is designed to work in an environment where process.env.API_KEY is injected.
+  // The global API key prompt in App.tsx ensures this will be populated when calls are made.
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  console.warn("API Key not found in process.env");
+  return ""; 
+};
 
 export const createChat = (model: string, systemInstruction?: string, history?: ChatMessage[]): Chat => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const formattedHistory: Content[] = history?.map(msg => ({
     // The role must be 'user' or 'model'. Our internal 'bot' maps to 'model'.
     role: msg.author === MessageAuthor.USER ? 'user' : 'model',
@@ -27,6 +30,7 @@ export const createChat = (model: string, systemInstruction?: string, history?: 
 };
 
 export const generateImage = async (prompt: string): Promise<Part> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -55,8 +59,8 @@ export const generateVideo = async (
   imageFile: File | null,
   onProgress: (message: string) => void
 ): Promise<string> => {
-  // A new AI instance must be created to get the latest key from the dialog.
-  const videoAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // A new AI instance is created to get the latest key.
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     onProgress("Initializing video generation...");
 
@@ -65,7 +69,7 @@ export const generateVideo = async (
       mimeType: imageFile.type,
     } : undefined;
 
-    let operation: OperationsOperation = await videoAi.models.generateVideos({
+    let operation: OperationsOperation = await ai.models.generateVideos({
       model: 'veo-3.1-fast-generate-preview',
       prompt: prompt,
       ...(imagePart && { image: imagePart }),
@@ -94,7 +98,7 @@ export const generateVideo = async (
 
     while (!operation.done) {
       await new Promise(resolve => setTimeout(resolve, 10000));
-      operation = await videoAi.operations.getVideosOperation({ operation: operation });
+      operation = await ai.operations.getVideosOperation({ operation: operation });
     }
     
     clearInterval(intervalId);
@@ -110,7 +114,7 @@ export const generateVideo = async (
 
     onProgress("Fetching your video...");
 
-    const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    const videoResponse = await fetch(`${downloadLink}&key=${getApiKey()}`);
     if (!videoResponse.ok) {
         throw new Error(`Failed to fetch video from URI. Status: ${videoResponse.status}`);
     }
@@ -120,8 +124,8 @@ export const generateVideo = async (
 
   } catch (error) {
     console.error("Error generating video:", error);
-    if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-        throw new Error("API key not valid or found. Please select a valid API key.");
+    if (error instanceof Error && (error.message.includes("Requested entity was not found") || error.message.includes("API key not valid"))) {
+        throw new Error("API key not valid or found. Please select a valid API key and try again.");
     }
     throw new Error(error instanceof Error ? error.message : "Failed to generate video. Please check the console for details.");
   }
@@ -131,6 +135,7 @@ export const editImage = async (
   imageFile: File,
   prompt: string
 ): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const base64Data = await fileToBase64(imageFile);
 

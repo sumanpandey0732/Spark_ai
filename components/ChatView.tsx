@@ -2,18 +2,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Chat, Part } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { createChat, generateImage } from '../services/geminiService';
-import { fileToBase64 } from '../utils/fileUtils';
-import { ChatMessage, MessageAuthor } from '../types';
-import { SendIcon } from './icons/SendIcon';
-import { ProIcon } from './icons/ProIcon';
-import { ChatIcon } from './icons/ChatIcon';
-import { AttachmentIcon } from './icons/AttachmentIcon';
-import { DownloadIcon } from './icons/DownloadIcon';
-import { CloseIcon } from './icons/CloseIcon';
-import CodeBlock from './CodeBlock';
-import { NewChatIcon } from './icons/NewChatIcon';
-import { MicrophoneIcon } from './icons/MicrophoneIcon';
+import { createChat, generateImage } from '../services/geminiService.ts';
+import * as chatHistoryService from '../services/chatHistoryService.ts';
+import { fileToBase64 } from '../utils/fileUtils.ts';
+import { ChatMessage, MessageAuthor, ChatSession } from '../types.ts';
+import { SendIcon } from './icons/SendIcon.tsx';
+import { ProIcon } from './icons/ProIcon.tsx';
+import { ChatIcon } from './icons/ChatIcon.tsx';
+import { AttachmentIcon } from './icons/AttachmentIcon.tsx';
+import { DownloadIcon } from './icons/DownloadIcon.tsx';
+import { CloseIcon } from './icons/CloseIcon.tsx';
+import CodeBlock from './CodeBlock.tsx';
+import { NewChatIcon } from './icons/NewChatIcon.tsx';
+import { MicrophoneIcon } from './icons/MicrophoneIcon.tsx';
 
 // FIX: Add type definitions for the Web Speech API to resolve 'Cannot find name SpeechRecognition' errors.
 interface SpeechRecognitionEvent extends Event {
@@ -79,9 +80,11 @@ interface ChatViewProps {
   subtitle: string;
   useStreaming: boolean;
   systemInstruction?: string;
+  chatId: string | null;
+  setChatId: (id: string | null) => void;
 }
 
-const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreaming, systemInstruction }) => {
+const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreaming, systemInstruction, chatId, setChatId }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -145,29 +148,51 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
 
     recognitionRef.current = recognition;
   }, []);
-
-  // Effect to initialize chat and load history when the model changes
+  
+  // Effect to load a chat session or start a new one
   useEffect(() => {
-    const loadedMessages = JSON.parse(localStorage.getItem(`chatHistory_${model}`) || '[]') as ChatMessage[];
-    setMessages(loadedMessages);
-    chatInstanceRef.current = createChat(model, systemInstruction, loadedMessages);
+    if (chatId) {
+      const session = chatHistoryService.getChatSession(chatId);
+      if (session && session.model === model) {
+        setMessages(session.messages);
+        chatInstanceRef.current = createChat(model, systemInstruction, session.messages);
+      } else {
+        // Chat ID from another model or invalid, start a new chat
+        setChatId(null);
+        setMessages([]);
+        chatInstanceRef.current = createChat(model, systemInstruction);
+      }
+    } else {
+      setMessages([]);
+      chatInstanceRef.current = createChat(model, systemInstruction);
+    }
     setError(null);
     setInput('');
     setAttachedFile(null);
     setPreviewUrl(null);
-  }, [model, systemInstruction]);
+  }, [chatId, model, systemInstruction, setChatId]);
   
-  // Effect to save chat history to localStorage when messages change
+  // Effect to save chat session to localStorage when messages change
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (messages.length > 0) {
-        localStorage.setItem(`chatHistory_${model}`, JSON.stringify(messages));
+    if (chatId && messages.length > 0) {
+      const session = chatHistoryService.getChatSession(chatId);
+      if (session) {
+        // Update existing session
+        const updatedSession = { ...session, messages, timestamp: Date.now() };
+        chatHistoryService.saveChatSession(updatedSession);
       } else {
-        localStorage.removeItem(`chatHistory_${model}`);
+        // Create new session
+        const newSession: ChatSession = {
+          id: chatId,
+          title: chatHistoryService.generateChatTitle(messages),
+          timestamp: Date.now(),
+          messages,
+          model,
+        };
+        chatHistoryService.saveChatSession(newSession);
       }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [messages, model]);
+    }
+  }, [messages, chatId, model]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -188,6 +213,12 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
 
     setError(null);
     setIsLoading(true);
+
+    let currentChatId = chatId;
+    if (!currentChatId) {
+        currentChatId = Date.now().toString();
+        setChatId(currentChatId);
+    }
 
     const lowerCaseMessage = message.trim().toLowerCase();
     const isImageGenerationRequest = lowerCaseMessage.startsWith('/generate ') || lowerCaseMessage.startsWith('generate image');
@@ -264,7 +295,7 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, useStreaming, attachedFile, model, systemInstruction]);
+  }, [isLoading, useStreaming, attachedFile, chatId, setChatId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,11 +323,7 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
   };
 
   const handleNewChat = () => {
-    setMessages([]);
-    chatInstanceRef.current = createChat(model, systemInstruction);
-    setError(null);
-    setInput('');
-    setAttachedFile(null);
+    setChatId(null);
   };
   
   const handleToggleListening = () => {
