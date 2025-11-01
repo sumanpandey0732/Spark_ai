@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
 import ImageEditorView from './components/ImageEditorView';
+import VideoEditorView from './components/VideoEditorView';
 import { MenuIcon } from './components/icons/MenuIcon';
 
-type ViewType = 'chat' | 'fast-chat' | 'pro-chat' | 'image-edit';
+type ViewType = 'chat' | 'fast-chat' | 'pro-chat' | 'image-edit' | 'video-edit';
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>('chat');
@@ -22,6 +23,8 @@ const App: React.FC = () => {
         return <ChatView key="pro-chat" model="gemini-2.5-pro" title="Spark 2.5 Pro" subtitle="The most capable model for complex reasoning." useStreaming={false} systemInstruction={systemInstruction} />;
       case 'image-edit':
         return <ImageEditorView />;
+      case 'video-edit':
+        return <VideoEditorView />;
       default:
         return <ChatView key="default-chat" model="gemini-2.5-flash" title="Spark Flash" subtitle="Quick and efficient for everyday tasks." useStreaming={false} systemInstruction={systemInstruction} />;
     }

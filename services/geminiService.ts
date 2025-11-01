@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, Modality, Part, Content } from "@google/genai";
+import { GoogleGenAI, Chat, Modality, Part, Content, OperationsOperation } from "@google/genai";
 import { fileToBase64 } from '../utils/fileUtils';
 import { ChatMessage, MessageAuthor } from "../types";
 
@@ -47,6 +47,83 @@ export const generateImage = async (prompt: string): Promise<Part> => {
   } catch (error) {
     console.error("Error generating image:", error);
     throw new Error("Failed to generate image. Please check the console for details.");
+  }
+};
+
+export const generateVideo = async (
+  prompt: string,
+  imageFile: File | null,
+  onProgress: (message: string) => void
+): Promise<string> => {
+  // A new AI instance must be created to get the latest key from the dialog.
+  const videoAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  try {
+    onProgress("Initializing video generation...");
+
+    const imagePart = imageFile ? {
+      imageBytes: await fileToBase64(imageFile),
+      mimeType: imageFile.type,
+    } : undefined;
+
+    let operation: OperationsOperation = await videoAi.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: prompt,
+      ...(imagePart && { image: imagePart }),
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9'
+      }
+    });
+
+    onProgress("Your request is being processed. This can take a few minutes...");
+    
+    const reassuringMessages = [
+      "Brewing up your video...",
+      "Composing the digital symphony...",
+      "Assembling pixels into motion...",
+      "Almost there, adding the final touches...",
+      "The digital film is developing..."
+    ];
+    let messageIndex = 0;
+
+    const intervalId = setInterval(() => {
+        onProgress(reassuringMessages[messageIndex]);
+        messageIndex = (messageIndex + 1) % reassuringMessages.length;
+    }, 15000);
+
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      operation = await videoAi.operations.getVideosOperation({ operation: operation });
+    }
+    
+    clearInterval(intervalId);
+
+    if (operation.error) {
+        throw new Error(`Video generation failed: ${operation.error.message}`);
+    }
+
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!downloadLink) {
+        throw new Error("Video generation completed, but no download link was found.");
+    }
+
+    onProgress("Fetching your video...");
+
+    const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    if (!videoResponse.ok) {
+        throw new Error(`Failed to fetch video from URI. Status: ${videoResponse.status}`);
+    }
+    const videoBlob = await videoResponse.blob();
+    
+    return URL.createObjectURL(videoBlob);
+
+  } catch (error) {
+    console.error("Error generating video:", error);
+    if (error instanceof Error && error.message.includes("Requested entity was not found")) {
+        throw new Error("API key not valid or found. Please select a valid API key.");
+    }
+    throw new Error(error instanceof Error ? error.message : "Failed to generate video. Please check the console for details.");
   }
 };
 

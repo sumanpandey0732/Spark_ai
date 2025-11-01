@@ -13,7 +13,65 @@ import { DownloadIcon } from './icons/DownloadIcon';
 import { CloseIcon } from './icons/CloseIcon';
 import CodeBlock from './CodeBlock';
 import { NewChatIcon } from './icons/NewChatIcon';
+import { MicrophoneIcon } from './icons/MicrophoneIcon';
 
+// FIX: Add type definitions for the Web Speech API to resolve 'Cannot find name SpeechRecognition' errors.
+interface SpeechRecognitionEvent extends Event {
+  readonly resultIndex: number;
+  readonly results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  readonly error: string;
+  readonly message: string;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
+  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
+  start(): void;
+  stop(): void;
+}
+
+declare var SpeechRecognition: {
+  prototype: SpeechRecognition;
+  new (): SpeechRecognition;
+};
+
+declare var webkitSpeechRecognition: {
+  prototype: SpeechRecognition;
+  new (): SpeechRecognition;
+};
+
+// Extend the window object with SpeechRecognition types for browser compatibility
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
 
 interface ChatViewProps {
   model: string;
@@ -30,10 +88,63 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
   const [error, setError] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'unsupported'>('prompt');
 
   const chatInstanceRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  // Effect to initialize SpeechRecognition and check for permissions
+  useEffect(() => {
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognitionAPI) {
+      console.warn("Speech recognition not supported by this browser.");
+      setMicPermission('unsupported');
+      return;
+    }
+
+    const checkMicPermission = async () => {
+        if (!navigator.permissions) return;
+        try {
+            const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+            setMicPermission(permissionStatus.state);
+            permissionStatus.onchange = () => setMicPermission(permissionStatus.state);
+        } catch (e) {
+            console.error("Could not query microphone permission status", e);
+        }
+    };
+    checkMicPermission();
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.trim();
+      setInput(prevInput => prevInput ? `${prevInput} ${transcript}` : transcript);
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("Speech recognition error", event.error, event.message);
+      if (event.error === 'not-allowed') {
+        setError("Microphone access was denied. Please enable it in your browser settings to use this feature.");
+        setMicPermission('denied');
+      } else {
+        setError(`Speech recognition error: ${event.error}. Please try again.`);
+      }
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, []);
 
   // Effect to initialize chat and load history when the model changes
   useEffect(() => {
@@ -48,18 +159,15 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
   
   // Effect to save chat history to localStorage when messages change
   useEffect(() => {
-    // We use a short timeout to batch updates and prevent saving an empty array on quick model switches
     const timer = setTimeout(() => {
       if (messages.length > 0) {
         localStorage.setItem(`chatHistory_${model}`, JSON.stringify(messages));
       } else {
-        // This ensures that if a chat is cleared, its storage is also cleared.
         localStorage.removeItem(`chatHistory_${model}`);
       }
-    }, 100); // 100ms debounce
+    }, 100);
     return () => clearTimeout(timer);
   }, [messages, model]);
-
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -85,7 +193,6 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
     const isImageGenerationRequest = lowerCaseMessage.startsWith('/generate ') || lowerCaseMessage.startsWith('generate image');
     const hasAttachment = !!attachedFile;
 
-    // --- User Message ---
     const userParts: Part[] = [];
     if (hasAttachment && attachedFile) {
         const base64Data = await fileToBase64(attachedFile);
@@ -114,7 +221,7 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
           if (!prompt) {
             setError("Please provide a prompt to generate an image.");
             setIsLoading(false);
-            setMessages(prev => prev.slice(0, -1)); // Remove the user message
+            setMessages(prev => prev.slice(0, -1));
             return;
           }
           
@@ -137,7 +244,6 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
               });
           }
         } else {
-          // This branch handles non-streaming AND streaming with an attachment.
           const partsForApi: Part[] = [];
           if (message.trim()) {
             partsForApi.push({ text: message.trim() });
@@ -158,7 +264,7 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, useStreaming, attachedFile]);
+  }, [isLoading, useStreaming, attachedFile, model, systemInstruction]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,11 +292,39 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
   };
 
   const handleNewChat = () => {
-    setMessages([]); // This will trigger the save effect to clear localStorage
-    chatInstanceRef.current = createChat(model, systemInstruction); // Creates a fresh instance
+    setMessages([]);
+    chatInstanceRef.current = createChat(model, systemInstruction);
     setError(null);
     setInput('');
     setAttachedFile(null);
+  };
+  
+  const handleToggleListening = () => {
+      if (!recognitionRef.current) return;
+      if (isListening) {
+          recognitionRef.current.stop();
+      } else {
+          setError(null);
+          try {
+            recognitionRef.current.start();
+            setIsListening(true);
+          } catch(e) {
+            console.error("Could not start speech recognition:", e);
+            setError("Could not start listening. Please try again.");
+            setIsListening(false);
+          }
+      }
+  };
+
+  const getMicButtonTooltip = () => {
+    switch (micPermission) {
+      case 'denied':
+        return "Microphone access is denied. Please enable it in your browser settings.";
+      case 'unsupported':
+        return "Speech recognition is not supported by your browser.";
+      default:
+        return isListening ? 'Stop listening' : 'Start voice input';
+    }
   };
 
   const renderPart = (part: Part, index: number) => {
@@ -315,22 +449,39 @@ const ChatView: React.FC<ChatViewProps> = ({ model, title, subtitle, useStreamin
                 </button>
             </div>
         )}
-        <form onSubmit={handleSubmit} className="flex items-center bg-gray-700/50 rounded-lg p-1">
+        <form onSubmit={handleSubmit} className="flex items-center bg-gray-700/50 rounded-lg p-1 space-x-1">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 rounded-md text-gray-300 hover:text-white hover:bg-gray-600 transition-colors">
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 flex-shrink-0 rounded-md text-gray-300 hover:text-white hover:bg-gray-600 transition-colors" aria-label="Attach file">
             <AttachmentIcon className="w-6 h-6" />
           </button>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isLoading ? "Processing..." : attachedFile ? "Describe the file or ask a question..." : "Ask me anything..."}
-            className="flex-1 bg-transparent px-4 py-2 text-white placeholder-gray-400 focus:outline-none"
+            placeholder={isLoading ? "Processing..." : isListening ? "Listening..." : attachedFile ? "Describe the file or ask a question..." : "Ask me anything..."}
+            className="flex-1 bg-transparent px-2 py-2 text-white placeholder-gray-400 focus:outline-none"
             disabled={isLoading}
           />
-          <button type="submit" disabled={isLoading || (!input.trim() && !attachedFile)} className="p-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
-            <SendIcon className="w-6 h-6" />
-          </button>
+          {(input.trim() || attachedFile) ? (
+            <button type="submit" disabled={isLoading || (!input.trim() && !attachedFile)} className="p-2 flex-shrink-0 rounded-md text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
+              <SendIcon className="w-6 h-6" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleToggleListening}
+              disabled={micPermission === 'unsupported' || micPermission === 'denied' || isLoading}
+              className={`p-2 flex-shrink-0 rounded-md text-white transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed ${
+                isListening 
+                  ? 'bg-red-600 hover:bg-red-500 animate-pulse' 
+                  : 'bg-indigo-600 hover:bg-indigo-500'
+              }`}
+              aria-label={getMicButtonTooltip()}
+              title={getMicButtonTooltip()}
+            >
+              <MicrophoneIcon className="w-6 h-6" />
+            </button>
+          )}
         </form>
       </div>
     </div>
