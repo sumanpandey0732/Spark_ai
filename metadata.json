@@ -1,0 +1,5 @@
+{
+  "name": "Spark AI Studio",
+  "description": "A versatile AI application that allows users to chat with different Spark models, including low-latency streaming and advanced analysis, as well as perform powerful text-based image editing.",
+  "requestFramePermissions": []
+}
